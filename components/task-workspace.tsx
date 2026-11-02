@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
 import {
@@ -17,8 +17,15 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { statusLabels, type Task, type TaskInput } from "@/lib/task-schema";
+import {
+  statusLabels,
+  type Task,
+  type TaskInput,
+  type TaskPage,
+  type TaskSummary,
+} from "@/lib/task-schema";
 import { TaskForm } from "./task-form";
+import { UndoDeleteNotice } from "./undo-delete-notice";
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -45,72 +52,103 @@ export function TaskWorkspace({ name }: { name: string }) {
   const [filter, setFilter] = useState("all");
   const [priority, setPriority] = useState("all");
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [sort, setSort] = useState("newest");
   const [editor, setEditor] = useState<{ task: Task | null } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [today, setToday] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<TaskSummary>({
+    total: 0,
+    todo: 0,
+    inProgress: 0,
+    done: 0,
+    overdue: 0,
+  });
+  const [deletedTasks, setDeletedTasks] = useState<
+    { id: string; title: string; undoUntil: string }[]
+  >([]);
+  const requestId = useRef(0);
+  const invalidateRequests = useCallback(() => {
+    ++requestId.current;
+  }, []);
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const load = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     setLoading(true);
     setError("");
     try {
-      setTasks(await request<Task[]>("/api/tasks"));
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        status: filter,
+        priority,
+        search,
+        sort,
+        today: today || localDate(),
+      });
+      const result = await request<TaskPage>("/api/tasks?" + params);
+      if (currentRequest !== requestId.current) return;
+      setSummary(result.summary);
+      setTotal(result.total);
+      setTasks(result.tasks);
+      const lastPage = Math.max(1, Math.ceil(result.total / result.pageSize));
+      if (page > lastPage) setPage(lastPage);
     } catch (error) {
-      setError((error as Error).message);
+      if (currentRequest === requestId.current)
+        setError((error as Error).message);
     } finally {
-      setLoading(false);
+      if (currentRequest === requestId.current) setLoading(false);
     }
-  }, []);
+  }, [page, filter, priority, search, sort, today]);
   useEffect(() => {
+    if (searchInput === search) return;
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setSearch(searchInput);
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [searchInput, search]);
+  useEffect(() => {
+    if (searchInput !== search) return;
     const timer = window.setTimeout(() => {
       void load();
-      setToday(localDate());
     }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      invalidateRequests();
+    };
+  }, [load, invalidateRequests, searchInput, search]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setToday(localDate()), 0);
     const dateTimer = window.setInterval(() => setToday(localDate()), 60000);
     return () => {
       window.clearTimeout(timer);
       window.clearInterval(dateTimer);
     };
-  }, [load]);
-  const completed = tasks.filter((task) => task.status === "done").length;
-  const overdue = tasks.filter(
-    (task) => task.status !== "done" && task.dueDate && task.dueDate < today,
-  ).length;
-  const visible = useMemo(
-    () =>
-      tasks
-        .filter(
-          (task) =>
-            (filter === "all" ||
-              task.status === filter ||
-              (filter === "overdue" &&
-                task.status !== "done" &&
-                task.dueDate &&
-                task.dueDate < today)) &&
-            (priority === "all" || task.priority === priority) &&
-            `${task.title} ${task.description}`
-              .toLowerCase()
-              .includes(search.toLowerCase()),
-        )
-        .sort((a, b) =>
-          sort === "dueDate"
-            ? (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999")
-            : sort === "priority"
-              ? { high: 0, medium: 1, low: 2 }[a.priority] -
-                { high: 0, medium: 1, low: 2 }[b.priority]
-              : b.createdAt.localeCompare(a.createdAt),
-        ),
-    [tasks, filter, priority, search, sort, today],
+  }, []);
+  const completed = summary.done;
+  const overdue = summary.overdue;
+  const visible = tasks;
+  const dismissUndo = useCallback(
+    (id: string) =>
+      setDeletedTasks((current) => current.filter((task) => task.id !== id)),
+    [],
   );
+  function changeFilter(value: string) {
+    if (value === filter && page === 1) return;
+    setLoading(true);
+    setPage(1);
+    setFilter(value);
+  }
   async function save(input: TaskInput) {
-    const task = await request<Task>(
+    await request<Task>(
       editor?.task ? `/api/tasks/${editor.task.id}` : "/api/tasks",
       { method: editor?.task ? "PUT" : "POST", body: JSON.stringify(input) },
     );
-    setTasks((current) =>
-      editor?.task
-        ? current.map((item) => (item.id === task.id ? task : item))
-        : [task, ...current],
-    );
+    await load();
     setNotice(editor?.task ? "Task updated." : "Task created.");
   }
   async function toggle(task: Task) {
@@ -128,9 +166,7 @@ export function TaskWorkspace({ name }: { name: string }) {
           status: task.status === "done" ? "todo" : "done",
         }),
       });
-      setTasks((current) =>
-        current.map((item) => (item.id === task.id ? updated : item)),
-      );
+      await load();
       setNotice(
         updated.status === "done"
           ? "Task completed. Nice work!"
@@ -143,14 +179,33 @@ export function TaskWorkspace({ name }: { name: string }) {
     }
   }
   async function remove(task: Task) {
-    if (!window.confirm(`Delete “${task.title}”? This cannot be undone.`))
-      return;
     setBusyId(task.id);
     setError("");
     try {
-      await request(`/api/tasks/${task.id}`, { method: "DELETE" });
-      setTasks((current) => current.filter((item) => item.id !== task.id));
-      setNotice("Task deleted.");
+      const result = await request<{ undoUntil: string }>(
+        "/api/tasks/" + task.id,
+        { method: "DELETE" },
+      );
+      setDeletedTasks((current) => [
+        ...current,
+        { id: task.id, title: task.title, undoUntil: result.undoUntil },
+      ]);
+      setNotice("Task deleted. Undo is available for 30 seconds.");
+      await load();
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+  async function restore(id: string) {
+    setBusyId(id);
+    setError("");
+    try {
+      await request<Task>("/api/tasks/" + id, { method: "PATCH" });
+      dismissUndo(id);
+      setNotice("Task restored.");
+      await load();
     } catch (error) {
       setError((error as Error).message);
     } finally {
@@ -173,20 +228,19 @@ export function TaskWorkspace({ name }: { name: string }) {
               id: "all",
               label: "All tasks",
               icon: LayoutList,
-              count: tasks.length,
+              count: summary.total,
             },
             {
               id: "todo",
               label: "To do",
               icon: Circle,
-              count: tasks.filter((task) => task.status === "todo").length,
+              count: summary.todo,
             },
             {
               id: "inProgress",
               label: "In progress",
               icon: Clock3,
-              count: tasks.filter((task) => task.status === "inProgress")
-                .length,
+              count: summary.inProgress,
             },
             {
               id: "done",
@@ -198,7 +252,8 @@ export function TaskWorkspace({ name }: { name: string }) {
             <button
               key={id}
               className={`nav-item ${filter === id ? "active" : ""}`}
-              onClick={() => setFilter(id)}
+              disabled={busyId !== null}
+              onClick={() => changeFilter(id)}
             >
               <Icon size={18} />
               {label}
@@ -258,6 +313,7 @@ export function TaskWorkspace({ name }: { name: string }) {
             </div>
             <button
               className="primary-button"
+              disabled={busyId !== null}
               onClick={() => setEditor({ task: null })}
             >
               <Plus size={18} />
@@ -268,15 +324,14 @@ export function TaskWorkspace({ name }: { name: string }) {
             {[
               {
                 label: "Total tasks",
-                count: tasks.length,
+                count: summary.total,
                 note: "Everything in one place",
                 icon: Layers3,
                 id: "all",
               },
               {
                 label: "In progress",
-                count: tasks.filter((task) => task.status === "inProgress")
-                  .length,
+                count: summary.inProgress,
                 note: "You’re moving forward",
                 icon: Clock3,
                 id: "inProgress",
@@ -299,7 +354,8 @@ export function TaskWorkspace({ name }: { name: string }) {
               <button
                 key={id}
                 className={`stat-card stat-${id}`}
-                onClick={() => setFilter(id)}
+                disabled={busyId !== null}
+                onClick={() => changeFilter(id)}
               >
                 <div>
                   <span>{label}</span>
@@ -318,7 +374,7 @@ export function TaskWorkspace({ name }: { name: string }) {
                   : filter === "all"
                     ? "Your tasks"
                     : statusLabels[filter as keyof typeof statusLabels]}
-                <span>{visible.length}</span>
+                <span>{total}</span>
               </h2>
               <span className="section-caption">
                 Clear your mind. Capture a task.
@@ -330,14 +386,25 @@ export function TaskWorkspace({ name }: { name: string }) {
                 <input
                   aria-label="Search tasks"
                   placeholder="Search your tasks…"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  value={searchInput}
+                  disabled={busyId !== null}
+                  maxLength={120}
+                  onChange={(event) => {
+                    setLoading(true);
+                    invalidateRequests();
+                    setSearchInput(event.target.value);
+                  }}
                 />
               </label>
               <select
                 aria-label="Filter by priority"
                 value={priority}
-                onChange={(event) => setPriority(event.target.value)}
+                disabled={busyId !== null}
+                onChange={(event) => {
+                  setLoading(true);
+                  setPage(1);
+                  setPriority(event.target.value);
+                }}
               >
                 <option value="all">All priorities</option>
                 <option value="high">High priority</option>
@@ -347,7 +414,12 @@ export function TaskWorkspace({ name }: { name: string }) {
               <select
                 aria-label="Sort tasks"
                 value={sort}
-                onChange={(event) => setSort(event.target.value)}
+                disabled={busyId !== null}
+                onChange={(event) => {
+                  setLoading(true);
+                  setPage(1);
+                  setSort(event.target.value);
+                }}
               >
                 <option value="newest">Newest first</option>
                 <option value="dueDate">Due date</option>
@@ -447,41 +519,84 @@ export function TaskWorkspace({ name }: { name: string }) {
                     <CheckCheck size={30} />
                   </span>
                   <h3>
-                    {tasks.length
+                    {summary.total
                       ? "A clear view."
                       : "Big things start with a small task."}
                   </h3>
                   <p>
-                    {tasks.length
+                    {summary.total
                       ? "No tasks match this view. Try another filter or search."
                       : "Add your first task and give your day a little direction."}
                   </p>
                   <button
                     className="secondary-button"
                     onClick={() =>
-                      tasks.length
-                        ? (setFilter("all"), setSearch(""), setPriority("all"))
+                      summary.total
+                        ? (changeFilter("all"),
+                          setSearchInput(""),
+                          setSearch(""),
+                          setPriority("all"))
                         : setEditor({ task: null })
                     }
                   >
-                    {tasks.length ? "Clear filters" : "Create your first task"}
+                    {summary.total ? "Clear filters" : "Create your first task"}
                     <Plus size={16} />
                   </button>
                 </div>
               )
             )}
-            <footer className="list-footer">
+            <footer className="list-footer pagination-footer">
               <span>
-                {visible.length} task{visible.length !== 1 ? "s" : ""} in this
-                view
+                {total === 0
+                  ? "0 tasks"
+                  : (page - 1) * pageSize +
+                    1 +
+                    "–" +
+                    Math.min(page * pageSize, total) +
+                    " of " +
+                    total +
+                    " tasks"}
               </span>
-              <span>
-                {completed} of {tasks.length} completed
-              </span>
+              <nav className="pagination-controls" aria-label="Task pagination">
+                <button
+                  className="secondary-button"
+                  disabled={loading || busyId !== null || page <= 1}
+                  onClick={() => {
+                    setLoading(true);
+                    setPage((value) => value - 1);
+                  }}
+                >
+                  Previous
+                </button>
+                <span aria-live="polite">
+                  Page {page} of {pageCount}
+                </span>
+                <button
+                  className="secondary-button"
+                  disabled={loading || busyId !== null || page >= pageCount}
+                  onClick={() => {
+                    setLoading(true);
+                    setPage((value) => value + 1);
+                  }}
+                >
+                  Next
+                </button>
+              </nav>
             </footer>
           </section>
           <p className="workspace-footer">Progress, at your pace.</p>
         </main>
+      </div>
+      <div className="undo-notices" aria-label="Recently deleted tasks">
+        {deletedTasks.map((task) => (
+          <UndoDeleteNotice
+            key={task.id}
+            task={task}
+            pending={busyId !== null}
+            onUndo={restore}
+            onExpire={dismissUndo}
+          />
+        ))}
       </div>
       {editor && (
         <TaskForm

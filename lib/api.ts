@@ -17,6 +17,9 @@ export function serviceError(error: unknown) {
   console.error(
     "Task request failed",
     error instanceof Error ? error.name : "UnknownError",
+    error && typeof error === "object" && "code" in error
+      ? String(error.code)
+      : "NoErrorCode",
   );
   return Response.json(
     { error: "We couldn't reach your tasks. Please try again." },
