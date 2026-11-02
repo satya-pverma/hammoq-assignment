@@ -42,7 +42,8 @@ describe("task rate limiting", () => {
     expect(await enforceTaskRateLimit("google-user-id", "write")).toBeNull();
     expect(mocks.slidingWindow).toHaveBeenCalledWith(120, "1 m");
     expect(mocks.slidingWindow).toHaveBeenCalledWith(30, "1 m");
-    expect(mocks.configs).toHaveLength(2);
+    expect(mocks.slidingWindow).toHaveBeenCalledWith(5, "1 m");
+    expect(mocks.configs).toHaveLength(3);
     expect(mocks.configs[0].prefix).not.toBe(mocks.configs[1].prefix);
     const key = mocks.limit.mock.calls[0][0];
     expect(key).toMatch(/^[a-f0-9]{64}$/);

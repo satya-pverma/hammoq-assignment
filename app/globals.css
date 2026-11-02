@@ -1236,3 +1236,42 @@ p {
 .email-login .error-message {
   margin-top: 14px;
 }
+.task-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.ai-draft-panel {
+  padding: 16px;
+  border: 1px solid #e6e0f8;
+  background: #faf8ff;
+  border-radius: 10px;
+  margin-bottom: 24px;
+}
+.ai-draft-panel label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8071cd;
+}
+.ai-draft-panel > p {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #9a8eac;
+  margin: 9px 0;
+}
+.ai-draft-panel .secondary-button {
+  font-size: 11px;
+  margin-top: 4px;
+}
+.ai-draft-panel .error-message {
+  color: #a2374d;
+}
+.ai-draft-panel .ai-draft-notice {
+  color: #81709e;
+  margin-bottom: 0;
+}
+.ai-draft-panel .ai-draft-notice:empty {
+  display: none;
+}
