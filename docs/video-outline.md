@@ -4,7 +4,7 @@ Use these as notes and adapt them to what you personally reviewed and understand
 
 ## Introduction and demonstration
 
-I built Tasklane, a private task manager using Next.js, TypeScript, MongoDB, and Google sign-in. I can create a task, set its priority and due date, edit it, mark it complete, and find it through search and filters. Refreshing the page preserves the task.
+I built Tasklane, a private task manager using Next.js, TypeScript, MongoDB, and Google sign-in. I can create a task, set its priority and due date, edit it, mark it complete, and find it through search and filters. Refreshing the page preserves the task. Search and filters run on the server, the list is paginated, and deletion has a 30-second Undo action.
 
 ## Three important decisions
 
@@ -20,7 +20,7 @@ I built Tasklane, a private task manager using Next.js, TypeScript, MongoDB, and
 
 ## One limitation
 
-The current list loads all tasks for the signed-in user and filters them in the browser. With another day I would add server-side filtering and cursor pagination, then test large histories and page boundaries.
+The current implementation uses last-write-wins when the same task is edited in two browser tabs. With another day I would add version-based concurrency checks and a conflict message so a later save cannot silently overwrite someone's newer changes.
 
 ## Closing
 

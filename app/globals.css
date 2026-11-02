@@ -1126,3 +1126,57 @@ p {
   align-items: center;
   gap: 14px;
 }
+.pagination-footer {
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pagination-controls .secondary-button {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+.undo-notices {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(460px, calc(100vw - 32px));
+  max-height: 50vh;
+  overflow: auto;
+}
+.undo-notice {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 18px;
+  background: #302b49;
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px #302b4933;
+  font-size: 12px;
+}
+.undo-notice strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.undo-notice .secondary-button {
+  flex-shrink: 0;
+  padding: 7px 12px;
+}
+@media (max-width: 760px) {
+  .undo-notices {
+    right: 16px;
+    bottom: 16px;
+  }
+  .pagination-controls {
+    gap: 8px;
+  }
+}

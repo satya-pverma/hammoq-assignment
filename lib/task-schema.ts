@@ -30,6 +30,33 @@ export type Task = TaskInput & {
   createdAt: string;
   updatedAt: string;
 };
+export type TaskSummary = {
+  total: number;
+  todo: number;
+  inProgress: number;
+  done: number;
+  overdue: number;
+};
+export type TaskPage = {
+  tasks: Task[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: TaskSummary;
+};
+export const undoWindowMs = 30_000;
+export const taskQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).max(10000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(50).default(10),
+    status: z.enum(["all", "overdue", ...taskStatuses]).default("all"),
+    priority: z.enum(["all", ...taskPriorities]).default("all"),
+    search: z.string().trim().max(120).default(""),
+    sort: z.enum(["newest", "dueDate", "priority"]).default("newest"),
+    today: taskSchema.shape.dueDate.unwrap().optional(),
+  })
+  .strict();
+export type TaskQuery = z.infer<typeof taskQuerySchema>;
 export const statusLabels = {
   todo: "To do",
   inProgress: "In progress",

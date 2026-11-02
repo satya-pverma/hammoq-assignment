@@ -5,9 +5,9 @@ A private task manager built for the Hammoq developer assessment. Next.js App Ro
 ## Features
 
 - Google sign-in and sign-out; verified Google accounts only.
-- Create, edit, delete, complete, and reopen tasks.
+- Create, edit, delete, complete, and reopen tasks. Undo deletion within 30 seconds.
 - Title, description, status, priority, and optional due date.
-- Search title and description; filter by status or priority; sort by newest, priority, or due date.
+- Server-side search, status/priority filters, and sorting by newest, priority, or due date. Ten tasks per page with Previous/Next controls; summaries cover all active tasks.
 - Task summaries and overdue view, responsive layouts, keyboard-accessible native dialogs, loading, error, retry, and empty states.
 - Every database query uses the authenticated Google account ID. The browser never chooses an owner.
 
@@ -34,11 +34,13 @@ Create a Google Cloud project, configure the OAuth consent screen, and create an
 
 ### MongoDB Atlas
 
-Create an Atlas cluster and a database user with read/write permission for `hammoqTasks`. Copy the application connection string into `MONGODB_URI`; URL-encode special characters in the database password. Configure Atlas network access to allow the application's outbound connections. For deployment, use the narrowest network access supported by your Vercel plan; broad internet access is a convenience tradeoff and should not be the long-term production setting. The app creates a compound index on owner ID and creation time automatically; the database user needs permission to create this index.
+Create an Atlas cluster and a database user with read/write permission for `hammoqTasks`. Copy the application connection string into `MONGODB_URI`; URL-encode special characters in the database password. Configure Atlas network access to allow the application's outbound connections. For deployment, use the narrowest network access supported by your Vercel plan; broad internet access is a convenience tradeoff and should not be the long-term production setting. The app creates an index on owner, deletion state, creation time, and task ID, plus a TTL index on deletion time. The database user needs permission to create these indexes. Existing active documents do not need a migration.
 
 Run `npm run dev`, open http://localhost:3000, and sign in. No fake account or authentication bypass is included. Without credentials the app shows a setup message.
 
 ## Vercel
+
+Local development uses public DNS resolvers (`1.1.1.1` and `8.8.8.8`) in the server process before connecting to MongoDB, to work around local Atlas SRV/TXT lookup failures. This does not change Windows settings. The override runs only when `NODE_ENV=development`; production and Vercel use their default DNS. Node.js DNS settings apply process-wide to DNS resolver calls, not exclusively to MongoDB.
 
 1. Put the source in a Git repository and import it into Vercel as a Next.js project.
 2. Set all six environment variables in the intended Vercel environment. Set `NEXTAUTH_URL` to the exact HTTPS deployment origin, with no path. Use a separate production secret.
@@ -56,7 +58,7 @@ npm test
 npm run build
 ```
 
-Tests cover invalid input, impossible dates, owner injection, anonymous requests, cross-origin writes, malformed IDs, and owner-scoped update/delete queries. They mock MongoDB and sessions; they do not replace an integration test with live Google and MongoDB.
+Tests cover invalid input, impossible dates, owner injection, anonymous requests, cross-origin writes, malformed IDs, bounded pagination, literal search, global summaries, and owner/time-scoped deletion and restoration. They mock MongoDB and sessions; they do not replace an integration test with live Google and MongoDB.
 
 Manual acceptance: sign in with account A, create/edit/complete/reopen/delete a task, reload to verify persistence, test filters and mobile layout, sign out, sign in with account B and verify A's tasks are absent. Also check Escape and keyboard navigation in the task dialog, and the retry state when the database is unavailable.
 
@@ -76,7 +78,7 @@ Task dates represent calendar dates, not UTC instants. Overdue checks use the br
 
 ## One limitation and an additional day
 
-The task list fetches all of the signed-in user's tasks and filters them in the browser. This is straightforward for an assessment but does not scale to large task histories. With another day, add cursor-based server pagination, server-side filters, matching indexes, and integration tests for page boundaries and account isolation.
+Simultaneous edits use last-write-wins. If two browser tabs edit the same task, the later save can overwrite the earlier change without warning. With another day, add optimistic concurrency checks using a task version and show a conflict message so users can reload before retrying.
 
 ## Production readiness boundaries
 
@@ -88,4 +90,12 @@ Submit the deployed URL, source repository URL, and your own short on-camera rec
 
 ## Verification notes
 
-The production build, TypeScript check, lint, and 16 automated tests passed during implementation. Live Google OAuth, MongoDB persistence, account-to-account integration, and visual browser QA still require verification. The current dependency audit reports 16 moderate advisories in the ESLint development-tool dependency chain; no application runtime dependency was reported in that audit. Forced breaking downgrades were not applied.
+The production build, TypeScript check, lint, and 31 automated tests pass. Live endpoint checks with isolated diagnostic accounts verified bounded pages, summaries, literal search, sorting, account isolation, soft deletion, restoration, and rejection after the 30-second undo window. Visual browser QA and final Google OAuth acceptance on Vercel remain manual checks. The current dependency audit reports 16 moderate advisories in the ESLint development-tool dependency chain; no application runtime dependency was reported in that audit. Forced breaking downgrades were not applied.
+
+## Pagination and undo deletion
+
+`GET /api/tasks` returns `{ tasks, total, page, pageSize, summary }`. It accepts page (1–10000), pageSize (1–50, default 10), status, priority, search (up to 120 characters), sort, and an optional local calendar date named today. Filters and sorting run before pagination; summary counts cover all active tasks for the authenticated user. Search treats special characters as literal text. Every sort uses creation time and task ID as deterministic tie-breakers. The client resets to page one when filters change and moves back if deleting the last task empties the final page.
+
+Pagination uses bounded offset/limit queries for simple numbered navigation. Deep pages and literal substring searches still scan or sort server-side data; cursor pagination and indexed search would be appropriate for very large accounts. Concurrent inserts or deletions can shift offset page boundaries.
+
+DELETE soft-deletes the owner's active task and returns an undoUntil deadline. PATCH on that task restores it only during the 30-second server-enforced window. Deleted tasks are excluded from lists, counts, and edits. Restoring preserves identity and creation time. A MongoDB TTL index removes deleted documents after the window; cleanup is asynchronous, so documents may remain physically stored briefly after restoration is already disallowed. This is an undo window, not a trash/recovery feature; the on-screen Undo action does not persist across a page refresh.
