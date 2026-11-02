@@ -1,14 +1,21 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions, isAuthConfigured } from "@/lib/auth";
+import { authOptions, isAuthConfigured, isGoogleConfigured } from "@/lib/auth";
+import { isOtpConfigured } from "@/lib/email-otp";
 import { Login } from "@/components/login";
 import { TaskWorkspace } from "@/components/task-workspace";
 async function Workspace() {
   await connection();
-  if (!isAuthConfigured()) return <Login configured={false} />;
+  const login = (
+    <Login
+      googleConfigured={isGoogleConfigured()}
+      otpConfigured={isAuthConfigured() && isOtpConfigured()}
+    />
+  );
+  if (!isAuthConfigured()) return login;
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return <Login configured />;
+  if (!session?.user?.id) return login;
   return <TaskWorkspace name={session.user.name ?? "there"} />;
 }
 export default function Home() {

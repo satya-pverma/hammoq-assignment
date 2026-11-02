@@ -4,7 +4,7 @@ A private task manager built for the Hammoq developer assessment. Next.js App Ro
 
 ## Features
 
-- Google sign-in and sign-out; verified Google accounts only.
+- Google or email OTP sign-in and sign-out. Both methods share one workspace for the same verified email.
 - Create, edit, delete, complete, and reopen tasks. Undo deletion within 30 seconds.
 - Title, description, status, priority, and optional due date.
 - Server-side search, status/priority filters, and sorting by newest, priority, or due date. Ten tasks per page with Previous/Next controls; summaries cover all active tasks.
@@ -43,7 +43,7 @@ Run `npm run dev`, open http://localhost:3000, and sign in. No fake account or a
 Local development uses public DNS resolvers (`1.1.1.1` and `8.8.8.8`) in the server process before connecting to MongoDB, to work around local Atlas SRV/TXT lookup failures. This does not change Windows settings. The override runs only when `NODE_ENV=development`; production and Vercel use their default DNS. Node.js DNS settings apply process-wide to DNS resolver calls, not exclusively to MongoDB.
 
 1. Put the source in a Git repository and import it into Vercel as a Next.js project.
-2. Set all six environment variables in the intended Vercel environment. Set `NEXTAUTH_URL` to the exact HTTPS deployment origin, with no path. Use a separate production secret.
+2. Set the Google/MongoDB/Redis environment variables and any enabled Brevo variables in the intended Vercel environment. Set `NEXTAUTH_URL` to the exact HTTPS deployment origin, with no path. Use a separate production secret.
 3. Add that origin and `https://YOUR-DOMAIN/api/auth/callback/google` to the Google OAuth client.
 4. Configure Atlas network access for Vercel, then deploy. Keep database and hosting regions close together.
 5. For preview deployments, use a stable preview hostname, configure its exact callback URL, and give that deployment its own matching `NEXTAUTH_URL`. Unconfigured rotating preview domains will not work with Google OAuth or the write-origin check.
@@ -82,7 +82,7 @@ Simultaneous edits use last-write-wins. If two browser tabs edit the same task, 
 
 ## Production readiness boundaries
 
-This uses production-oriented practices, but has not been operated at production scale. Before an unrestricted public launch, add distributed request throttling and per-user quotas, operational monitoring, backup/restore verification, and automated browser/integration checks. Simultaneous edits currently use last-write-wins; there is no conflict resolution. Stateless sessions cannot be centrally revoked before expiry. These are explicit operational limits, not claims of completed work.
+This uses production-oriented practices, but has not been operated at production scale. Before an unrestricted public launch, add per-user storage quotas, operational monitoring, backup/restore verification, and automated browser/integration checks. Simultaneous edits currently use last-write-wins; there is no conflict resolution. Stateless sessions cannot be centrally revoked before expiry. These are explicit operational limits, not claims of completed work.
 
 ## Assessment submission
 
@@ -90,7 +90,7 @@ Submit the deployed URL, source repository URL, and your own short on-camera rec
 
 ## Verification notes
 
-The production build, TypeScript check, lint, and 31 automated tests pass. Live endpoint checks with isolated diagnostic accounts verified bounded pages, summaries, literal search, sorting, account isolation, soft deletion, restoration, and rejection after the 30-second undo window. Visual browser QA and final Google OAuth acceptance on Vercel remain manual checks. The current dependency audit reports 16 moderate advisories in the ESLint development-tool dependency chain; no application runtime dependency was reported in that audit. Forced breaking downgrades were not applied.
+The production build, TypeScript check, lint, and 54 automated tests pass. Live endpoint checks with isolated diagnostic accounts verified bounded pages, summaries, literal search, sorting, account isolation, soft deletion, restoration, and rejection after the 30-second undo window. Visual browser QA and final Google OAuth acceptance on Vercel remain manual checks. The current dependency audit reports 16 moderate advisories in the ESLint development-tool dependency chain; no application runtime dependency was reported in that audit. Forced breaking downgrades were not applied.
 
 ## Pagination and undo deletion
 
@@ -99,3 +99,25 @@ The production build, TypeScript check, lint, and 31 automated tests pass. Live 
 Pagination uses bounded offset/limit queries for simple numbered navigation. Deep pages and literal substring searches still scan or sort server-side data; cursor pagination and indexed search would be appropriate for very large accounts. Concurrent inserts or deletions can shift offset page boundaries.
 
 DELETE soft-deletes the owner's active task and returns an undoUntil deadline. PATCH on that task restores it only during the 30-second server-enforced window. Deleted tasks are excluded from lists, counts, and edits. Restoring preserves identity and creation time. A MongoDB TTL index removes deleted documents after the window; cleanup is asynchronous, so documents may remain physically stored briefly after restoration is already disallowed. This is an undo window, not a trash/recovery feature; the on-screen Undo action does not persist across a page refresh.
+
+## API rate limiting
+
+Upstash Redis is required for authenticated task API requests in development and production. Create a Redis database and configure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN locally and in Vercel. Use a read/write REST token; rate-limit counters require writes. Keep these server-side secrets private. A read-only token will not work.
+
+The API uses shared sliding-window budgets per authenticated user: 120 reads per minute and 30 writes per minute. Creating, editing, deleting, and restoring tasks share the write budget. Rate-limit keys use SHA-256 hashes of user IDs and separate namespaces for development, preview, and production. The limiter runs after authentication and before request parsing or MongoDB access; invalid authenticated requests also consume budget. No task-list caching is introduced.
+
+Exceeded limits return 429 with Retry-After and X-RateLimit headers. Redis timeouts, errors, or missing credentials return 503 with Retry-After: 5. This deliberately fails closed: the app temporarily cannot access tasks if Redis is unavailable. Redis requests and the limiter have a two-second timeout; retries and limiter analytics are disabled. Existing client error states display the API retry message; requests are not automatically replayed.
+
+## Email OTP login with Brevo
+
+Set BREVO_API_KEY and BREVO_SENDER_EMAIL in your local environment and in Vercel. The sender email must already be verified in Brevo. BREVO_SENDER_NAME is optional and defaults to Tasklane. Use a Brevo API key, not an SMTP key. Google login continues working when Brevo is not configured; the email login form appears only when the required settings are present. NEXTAUTH_SECRET, NEXTAUTH_URL, MongoDB, and Upstash Redis remain required.
+
+The server creates a cryptographically random six-digit code, stores an HMAC digest with a Redis EX 45 TTL, and sends the code through Brevo. The plaintext code is never stored in Redis, logged, or returned by the API. Expiry starts when the code is requested, so email delivery time uses part of the 45-second window. Verification atomically consumes a valid code. Five incorrect attempts delete that challenge. A code cannot be reused, and an unexpired code cannot be overwritten by a resend. Delivery failures invalidate only that request's challenge.
+
+Abuse controls: at most 3 send requests per email per 15 minutes, 20 per IP per 15 minutes, 10 verification attempts per email per 5 minutes, and 30 per IP per 5 minutes. On Vercel the forwarding IP comes from platform headers; local development uses one shared development IP bucket. Redis failures block sign-in.
+
+A users collection holds the normalized verified email, display name, and stable workspace owner ID, with a unique email index. Only verified Google profiles or successful OTP verification may resolve an identity. Emails are trimmed and lowercased; provider-specific aliases or dot variations are not merged. New accounts need no separate registration.
+
+For pre-existing Google accounts, refresh while signed in or sign in with Google once after this update to register the email-to-workspace mapping before switching to OTP. If OTP was used first, the next Google sign-in merges only that verified Google identity's legacy tasks into the shared workspace. Existing task IDs and content are preserved. Email-only login cannot discover an old Google account ID that was never associated with an email in the database. Existing duplicate/malformed documents in a manually populated users collection must be resolved before its unique email index can be created.
+
+Manual acceptance: request a code from a verified Brevo sender, sign in within 45 seconds, confirm the same tasks as Google, and test resend after expiry. Automated Redis checks use a fake delivery function and do not send emails. Live Brevo delivery requires valid sender credentials and must be verified separately.

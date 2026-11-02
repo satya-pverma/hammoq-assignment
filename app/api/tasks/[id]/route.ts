@@ -10,6 +10,7 @@ import {
   taskOwnerFilter,
 } from "@/lib/task-repository";
 import { taskSchema, undoWindowMs } from "@/lib/task-schema";
+import { enforceTaskRateLimit } from "@/lib/rate-limit";
 async function mutateTask(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -20,6 +21,8 @@ async function mutateTask(
   const ownerId = await getOwnerId();
   if (!ownerId)
     return Response.json({ error: "Please sign in." }, { status: 401 });
+  const limited = await enforceTaskRateLimit(ownerId, "write");
+  if (limited) return limited;
   const filter = taskOwnerFilter(ownerId, (await context.params).id);
   if (!filter)
     return Response.json({ error: "Task not found." }, { status: 404 });
@@ -87,6 +90,8 @@ export async function PATCH(
   const ownerId = await getOwnerId();
   if (!ownerId)
     return Response.json({ error: "Please sign in." }, { status: 401 });
+  const limited = await enforceTaskRateLimit(ownerId, "write");
+  if (limited) return limited;
   const filter = taskOwnerFilter(ownerId, (await context.params).id);
   if (!filter)
     return Response.json({ error: "Task not found." }, { status: 404 });

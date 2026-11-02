@@ -4,13 +4,20 @@ import { ArrowRight, Check, Layers3, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { EmailOtpForm } from "./email-otp-form";
 
-export function Login({ configured }: { configured: boolean }) {
+export function Login({
+  googleConfigured,
+  otpConfigured,
+}: {
+  googleConfigured: boolean;
+  otpConfigured: boolean;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const params = useSearchParams();
   const authError = params.has("error")
-    ? "Sign-in wasn't completed. Please try again, and use a verified Google account."
+    ? "Sign-in wasn't completed. Please try again."
     : "";
   async function login() {
     setPending(true);
@@ -90,21 +97,22 @@ export function Login({ configured }: { configured: boolean }) {
               {error || authError}
             </p>
           )}
-          {!configured && (
+          {!googleConfigured && !otpConfigured && (
             <p className="setup-note">
-              Workspace setup is almost ready. Add your Google OAuth credentials
-              and session secret using the setup guide in the README.
+              Workspace setup is almost ready. Configure a sign-in method using
+              the setup guide in the README.
             </p>
           )}
           <button
             className="google-button"
-            disabled={!configured || pending}
+            disabled={!googleConfigured || pending}
             onClick={login}
           >
             <span className="google-g">G</span>
             {pending ? "Connecting…" : "Continue with Google"}
             <ArrowRight size={18} />
           </button>
+          {otpConfigured && <EmailOtpForm googlePending={pending} />}
           <div className="login-divider" />
           <div className="privacy-note">
             <ShieldCheck size={19} />
@@ -115,7 +123,7 @@ export function Login({ configured }: { configured: boolean }) {
             </span>
           </div>
           <small className="login-footnote">
-            No new password. Just your Google account.
+            No password to remember. Your workspace, your way.
           </small>
         </div>
         <span className="panel-footer">

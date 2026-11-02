@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@upstash/ratelimit": "^2.2.0",
+    "@upstash/redis": "^1.41.0",
     "lucide-react": "^1.66.0",
     "mongodb": "^7.8.0",
     "next": "16.4.4",
