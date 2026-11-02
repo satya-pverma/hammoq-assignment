@@ -1180,3 +1180,59 @@ p {
     gap: 8px;
   }
 }
+.email-login {
+  text-align: left;
+  margin-top: 22px;
+}
+.email-login-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #a19aaa;
+  font-size: 11px;
+  margin-bottom: 20px;
+}
+.email-login-separator span {
+  flex: 1;
+  height: 1px;
+  background: #eeecf2;
+}
+.email-login label {
+  display: block;
+  font-size: 12px;
+  color: #82788e;
+  margin: 12px 0 7px;
+}
+.email-login input,
+.email-login .primary-button {
+  width: 100%;
+}
+.email-login .primary-button {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.email-login form > p {
+  font-size: 12px;
+  color: #82788e;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.email-login small {
+  display: block;
+  color: #a19aaa;
+  margin-top: 8px;
+  font-size: 11px;
+}
+.email-login-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+.email-login-actions button {
+  background: transparent;
+  color: #8071cd;
+  font-size: 11px;
+}
+.email-login .error-message {
+  margin-top: 14px;
+}

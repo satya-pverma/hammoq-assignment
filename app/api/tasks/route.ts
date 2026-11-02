@@ -6,10 +6,13 @@ import {
 } from "@/lib/api";
 import { getTaskPage, getTasksCollection } from "@/lib/task-repository";
 import { taskSchema, taskQuerySchema } from "@/lib/task-schema";
+import { enforceTaskRateLimit } from "@/lib/rate-limit";
 export async function GET(request: Request) {
   const ownerId = await getOwnerId();
   if (!ownerId)
     return Response.json({ error: "Please sign in." }, { status: 401 });
+  const limited = await enforceTaskRateLimit(ownerId, "read");
+  if (limited) return limited;
   const query = taskQuerySchema.safeParse(
     Object.fromEntries(new URL(request.url).searchParams),
   );
@@ -32,6 +35,8 @@ export async function POST(request: Request) {
   const ownerId = await getOwnerId();
   if (!ownerId)
     return Response.json({ error: "Please sign in." }, { status: 401 });
+  const limited = await enforceTaskRateLimit(ownerId, "write");
+  if (limited) return limited;
   let body: unknown;
   try {
     body = await parseTaskBody(request);

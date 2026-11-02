@@ -6,6 +6,10 @@ vi.mock("../lib/auth", () => ({
   isAuthConfigured: () => true,
 }));
 vi.mock("../lib/mongodb", () => ({ getDatabase: vi.fn() }));
+vi.mock("../lib/rate-limit", () => ({
+  enforceTaskRateLimit: vi.fn().mockResolvedValue(null),
+}));
+import { enforceTaskRateLimit } from "../lib/rate-limit";
 import { getServerSession } from "next-auth";
 import { getDatabase } from "../lib/mongodb";
 import { GET, POST } from "../app/api/tasks/route";
@@ -42,6 +46,7 @@ function request(
 describe("task authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(enforceTaskRateLimit).mockResolvedValue(null);
     process.env.NEXTAUTH_URL = "http://localhost:3000";
     vi.mocked(getServerSession).mockResolvedValue({
       user: { id: "user-a" },
@@ -61,6 +66,23 @@ describe("task authorization", () => {
       (await DELETE(request("DELETE"), { params: Promise.resolve({ id }) }))
         .status,
     ).toBe(401);
+    expect(getDatabase).not.toHaveBeenCalled();
+    expect(enforceTaskRateLimit).not.toHaveBeenCalled();
+  });
+  it("returns the limiter response before accessing MongoDB on every task route", async () => {
+    vi.mocked(enforceTaskRateLimit).mockImplementation(async () =>
+      Response.json({ error: "Too many requests" }, { status: 429 }),
+    );
+    const context = { params: Promise.resolve({ id }) };
+    expect(
+      (await GET(new Request("http://localhost:3000/api/tasks"))).status,
+    ).toBe(429);
+    expect((await POST(request("POST"))).status).toBe(429);
+    expect((await PUT(request("PUT"), context)).status).toBe(429);
+    expect((await DELETE(request("DELETE"), context)).status).toBe(429);
+    expect((await PATCH(request("PATCH"), context)).status).toBe(429);
+    expect(enforceTaskRateLimit).toHaveBeenCalledWith("user-a", "read");
+    expect(enforceTaskRateLimit).toHaveBeenCalledWith("user-a", "write");
     expect(getDatabase).not.toHaveBeenCalled();
   });
   it("rejects cross-origin writes", async () => {
@@ -177,17 +199,15 @@ describe("paginated task reads", () => {
       collection: () => collection,
     } as never);
     collection.aggregate.mockReturnValue({
-      toArray: vi
-        .fn()
-        .mockResolvedValue([
-          {
-            tasks: [],
-            count: [{ total: 21 }],
-            summary: [
-              { total: 30, todo: 15, inProgress: 10, done: 5, overdue: 2 },
-            ],
-          },
-        ]),
+      toArray: vi.fn().mockResolvedValue([
+        {
+          tasks: [],
+          count: [{ total: 21 }],
+          summary: [
+            { total: 30, todo: 15, inProgress: 10, done: 5, overdue: 2 },
+          ],
+        },
+      ]),
     });
   });
   it.each([
