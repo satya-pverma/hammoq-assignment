@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 
-type RequestKind = "read" | "write";
+type RequestKind = "read" | "write" | "ai";
 let limiters: Record<RequestKind, Ratelimit> | undefined;
 
 function getLimiters() {
@@ -30,6 +30,7 @@ function getLimiters() {
   limiters = {
     read: createLimiter("read", 120),
     write: createLimiter("write", 30),
+    ai: createLimiter("ai", 5),
   };
   return limiters;
 }
@@ -66,7 +67,7 @@ export async function enforceTaskRateLimit(
     );
     return Response.json(
       {
-        error: `Too many task ${kind === "read" ? "requests" : "changes"}. Try again in ${retryAfter} seconds.`,
+        error: `Too many ${kind === "ai" ? "AI drafts" : kind === "read" ? "task requests" : "task changes"}. Try again in ${retryAfter} seconds.`,
       },
       {
         status: 429,

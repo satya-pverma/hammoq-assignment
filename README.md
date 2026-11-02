@@ -90,7 +90,7 @@ Submit the deployed URL, source repository URL, and your own short on-camera rec
 
 ## Verification notes
 
-The production build, TypeScript check, lint, and 54 automated tests pass. Live endpoint checks with isolated diagnostic accounts verified bounded pages, summaries, literal search, sorting, account isolation, soft deletion, restoration, and rejection after the 30-second undo window. Visual browser QA and final Google OAuth acceptance on Vercel remain manual checks. The current dependency audit reports 16 moderate advisories in the ESLint development-tool dependency chain; no application runtime dependency was reported in that audit. Forced breaking downgrades were not applied.
+The production build, TypeScript check, lint, and 70 automated tests pass. Live endpoint checks with isolated diagnostic accounts verified bounded pages, summaries, literal search, sorting, account isolation, soft deletion, restoration, and rejection after the 30-second undo window. Visual browser QA and final Google OAuth acceptance on Vercel remain manual checks. The current dependency audit reports 16 moderate advisories in the ESLint development-tool dependency chain; no application runtime dependency was reported in that audit. Forced breaking downgrades were not applied.
 
 ## Pagination and undo deletion
 
@@ -121,3 +121,14 @@ A users collection holds the normalized verified email, display name, and stable
 For pre-existing Google accounts, refresh while signed in or sign in with Google once after this update to register the email-to-workspace mapping before switching to OTP. If OTP was used first, the next Google sign-in merges only that verified Google identity's legacy tasks into the shared workspace. Existing task IDs and content are preserved. Email-only login cannot discover an old Google account ID that was never associated with an email in the database. Existing duplicate/malformed documents in a manually populated users collection must be resolved before its unique email index can be created.
 
 Manual acceptance: request a code from a verified Brevo sender, sign in within 45 seconds, confirm the same tasks as Google, and test resend after expiry. Automated Redis checks use a fake delivery function and do not send emails. Live Brevo delivery requires valid sender credentials and must be verified separately.
+
+## Gemini AI task drafting
+
+Set GEMINI_API_KEY server-side in .env.local and Vercel. GEMINI_MODEL is optional and defaults to gemini-3.1-flash-lite. No extra SDK is required; the server calls Gemini's structured-output REST API with the key in a request header.
+
+Open New task, describe the work in the optional Draft with AI panel, and click Fill task fields with AI. A validated suggestion fills the editable task form. Review all fields and click Create task to save; drafting never writes to MongoDB. Manual entry stays available when AI is unavailable. Closing the dialog cancels the browser request. Only the description deliberately entered in this panel is sent to Google, along with timezone/date context and the extraction instructions; existing tasks and user identity are not included.
+
+The endpoint requires a signed-in user, matching origin, and a separate Redis budget of five AI drafts per minute per user. Input is limited to 2000 characters, output to 2048 tokens, and provider requests time out after 30 seconds with no automatic retries. AI requests count even if validation or the provider later fails. Redis failures block AI requests under the existing fail-closed policy. Gemini quota/billing failures return a temporary error without exposing provider details. The key, prompt, and generated text are not logged by the application.
+
+The server computes today in the supplied valid IANA timezone, requests null for missing or ambiguous dates, validates returned dates and fields with Zod, and forces initial status to To do. AI can still misinterpret intent or dates; human review is required. Automated checks cover access control, origin validation, separate rate limits, malformed output, invalid dates, and provider failures. A live synthetic Gemini request verified structured drafting and timezone-relative tomorrow resolution without creating a task.
+
